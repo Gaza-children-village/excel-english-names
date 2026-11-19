@@ -61,13 +61,20 @@ Before a release, remove the development modules (`TestEnglishNames`, `FakeNameA
 
 ## Releasing
 
-```
-python make_addin_release.py "GCV English Names.xlam" --changelog CHANGELOG.md --repo Gaza-children-village/excel-english-names
-```
+Releases are checked and published by GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)); only the build happens by hand, because it needs Excel.
 
-The release tool (in [excel-updater/release-tools](https://github.com/Gaza-children-village/excel-updater/tree/main/release-tools)) checks the file (add-in type, ribbon, no test modules, version listed in `CHANGELOG.md`), writes `manifest.json` with the SHA-256 and size, and prints the `gh release create english-names-v<version> ...` command. Tags are `english-names-v<version>`. Drafts and pre-releases are ignored by the updater.
+1. Raise `ADDIN_VERSION` in `src/GcvAddin.bas` and add a `## <version>` section to `CHANGELOG.md`.
+2. Build the add-in in Excel (see above) **without** the test modules, and save it.
+3. Upload it as a **draft** release:
+   ```
+   gh release create english-names-v<version> "GCV English Names.xlam" --draft --repo Gaza-children-village/excel-english-names
+   ```
+4. Merge to `main` and push the tag `english-names-v<version>` (through Gitea; the mirror carries it to GitHub).
+5. The workflow checks the uploaded file (same id and version as the tag, add-in type, ribbon, no test modules, CHANGELOG section), adds `manifest.json` (SHA-256 and size), renames the file to its asset name, sets the release notes from `CHANGELOG.md` and **publishes**. If anything is wrong, the release stays a draft (the updater ignores drafts) and the job shows why.
 
-The file name must stay `GCV English Names.xlam`: workbooks refer to `TO_ENGLISH` through it, and the loader and updater use it.
+Uploaded the draft after pushing the tag? Re-run the failed **release** job in the Actions tab, or `gh workflow run ci.yml -f tag=english-names-v<version> --repo Gaza-children-village/excel-english-names`.
+
+Every push also runs the source checks: VBA files ASCII with CRLF, module names equal to file names, `Option Explicit`, the shared ribbon tab, a valid identity in `GcvAddin.bas` with a CHANGELOG section. Run them locally with `python .github/scripts/gcv_ci.py check`.
 
 ## Files
 
