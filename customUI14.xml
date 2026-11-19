@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui" xmlns:gcv="GCV.Tools.Ribbon">
+  <ribbon>
+    <tabs>
+      <tab idQ="gcv:GcvToolsTab" label="Gaza Children Village Tools">
+        <group id="gcvNamesGroup" label="الأسماء الإنجليزية">
+          <button id="gcvFreezeNames" label="تثبيت الأسماء المراجعة" size="large" imageMso="PasteValues"
+                  onAction="Ribbon_FreezeNames" screentip="تثبيت الأسماء المراجعة"
+                  supertip="بعد مراجعة نتائج =TO_ENGLISH في الخلايا المحددة: يحوّلها إلى نص ثابت لا يتغير."/>
+          <button id="gcvNamesTryAgain" label="إعادة المحاولة" size="large" imageMso="Refresh"
+                  onAction="Ribbon_TryAgain" screentip="إعادة المحاولة"
+                  supertip="يعيد طلب الأسماء في الخلايا المحددة بعد تشغيل تطبيق GCV (عندما تظهر #N/A)."/>
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>
