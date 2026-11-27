@@ -15,6 +15,7 @@ Implements INameApi
 ' simulates a stopped GCV application. Calls counts the requests.
 
 Public Offline As Boolean
+Public FailWithStatus As Long        ' e.g. 401 / 503: every request answers this status
 Public Calls As Long
 
 Private mAnswers As Object
@@ -34,6 +35,13 @@ Private Function INameApi_Transliterate(ByVal arabicName As String) As NameResul
     If Offline Then
         result.Outcome = noConnectionFailed
         result.ErrorText = "fake: offline"
+    ElseIf FailWithStatus <> 0 Then
+        result.HttpStatus = FailWithStatus
+        Select Case FailWithStatus
+            Case 401: result.Outcome = noUnauthorized
+            Case 503: result.Outcome = noUnavailable
+            Case Else: result.Outcome = noHttpError
+        End Select
     ElseIf mAnswers.Exists(arabicName) Then
         result.Outcome = noOk
         result.HttpStatus = 200

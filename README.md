@@ -22,18 +22,21 @@ English spelling (passport style, four parts, Title Case) of the Arabic name in 
 ## Behaviour
 
 - Each name is asked once per Excel session (cache).
-- When the service cannot be reached, `TO_ENGLISH` returns `#N/A` and sends no requests for 30 seconds, so recalculation does not slow the PC down.
+- When the service cannot answer (app not running, key refused `401`, not ready `503`, another HTTP error), `TO_ENGLISH` returns `#N/A` and sends no requests for 30 seconds, so recalculation does not slow the PC down. A worksheet function shows no messages: **إعادة المحاولة** explains the last problem, then asks again.
 - A name without a spelling returns `#N/A`; a range of several cells returns `#VALUE!`.
 - Names are sent only to the local GCV application. Logs contain counts and failures, never names.
 
-## Name service (planned)
+## Name service (GCV desktop app v1.10.0 and later)
 
-The endpoint does not exist in the GCV application yet. Proposed contract:
+Contract: `docs/local-api.md` in the GCV desktop app repository.
 
 ```
 GET http://127.0.0.1:5555/api/transliterate?name=<UTF-8, URL-encoded Arabic name>
-200 {"english": "Mohammed Ahmed Khaled Abu Shamala", "needsReview": true}
+200 {"english": "Mohammed Ahmed Khaled Abu Shamala", "needsReview": true}   ("english" empty: no spelling)
+401 key refused · 503 not ready · GET /api/health after a failure
 ```
+
+Requests carry `X-GCV-Excel-Addin: gcv/english-names/<version>` and, once the app has written one, its key `X-GCV-Api-Key` (read from `HKCU\Software\GCV Tools\LocalApiKey`, never logged). The app requires the key only after all PCs have 0.2.0 or later.
 
 The base address can be changed per PC in the registry: `HKCU\Software\VB and VBA Program Settings\GCV Tools\EnglishNames\ApiBaseUrl`.
 
@@ -83,8 +86,9 @@ Every push also runs the source checks: VBA files ASCII with CRLF, module names 
 | `src/EnglishNames.bas` | `TO_ENGLISH`, cache, pause, ribbon actions |
 | `src/HttpNameApi.cls`, `src/INameApi.cls`, `src/NameResult.cls` | Name service (WinHTTP) behind an interface |
 | `src/UpdJson.bas` | JSON reader |
+| `src/GcvLocalApi.bas` | Headers (add-in, key) and health check for the GCV app; same file in Student Lookup |
 | `src/GcvLogClient.bas`, `src/GcvAddin.bas` | Logging through GCV Logger; identity of the add-in |
-| `src/TestEnglishNames.bas`, `src/FakeNameApi.cls` | Tests (development only) |
+| `src/TestEnglishNames.bas`, `src/FakeNameApi.cls`, `src/TestGcvLocalApi.bas`, `src/FakeHeaderSink.cls` | Tests (development only) |
 
 ## Part of GCV Tools
 
@@ -93,7 +97,7 @@ Excel add-ins for the schools of Gaza Children's Village. They share one ribbon 
 | Add-in | Repository | What it does |
 |---|---|---|
 | GCV Logger | [excel-logger](https://github.com/Gaza-children-village/excel-logger) | Logs of all GCV add-ins; show logs, report an issue |
-| GCV Updater | [excel-updater](https://github.com/Gaza-children-village/excel-updater) | Installs updates and new tools; home of the catalog, loader and installer |
+| GCV Updater | [excel-updater](https://github.com/Gaza-children-village/excel-updater) | Installs updates and new tools; home of the catalog and loader |
 | GCV Student Lookup | [excel-student-lookup](https://github.com/Gaza-children-village/excel-student-lookup) | Fills student rows from the Civil Registry, on demand |
 | GCV English Names | [excel-english-names](https://github.com/Gaza-children-village/excel-english-names) | `=TO_ENGLISH(cell)`: English spelling of Arabic names |
 

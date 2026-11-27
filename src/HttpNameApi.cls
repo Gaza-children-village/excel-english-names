@@ -11,10 +11,12 @@ Option Explicit
 
 Implements INameApi
 
-' Name service of the GCV application (PROPOSED contract - the endpoint does
-' not exist yet):
+' Name service of the GCV application (desktop app v1.10.0 and later,
+' contract in docs/local-api.md of the app):
 '   GET <base>transliterate?name=<UTF-8, URL-encoded Arabic name>
 '   200 {"english": "Mohammed Ahmed Khaled Abu Shamala", "needsReview": true}
+'       ("english" empty: no spelling possible)
+'   401 key refused (open or update the app), 503 name service not ready
 ' Short time-outs: a formula must not freeze Excel when the app is not running.
 
 Private Const CONNECT_TIMEOUT_MS As Long = 1500
@@ -38,7 +40,7 @@ Private Function INameApi_Transliterate(ByVal arabicName As String) As NameResul
     http.SetTimeouts CONNECT_TIMEOUT_MS, CONNECT_TIMEOUT_MS, ANSWER_TIMEOUT_MS, ANSWER_TIMEOUT_MS
     http.Open "GET", mBaseUrl & "transliterate?name=" & UrlEncodeUtf8(arabicName), False
     http.SetRequestHeader "Accept", "application/json"
-    http.SetRequestHeader "X-GCV-Excel-Addin", GcvAddin.ADDIN_ID & "/" & GcvAddin.ADDIN_VERSION
+    GcvLocalApi.AddHeaders http                     ' add-in version and the app's key
     http.Send
     On Error GoTo 0
 
@@ -47,6 +49,10 @@ Private Function INameApi_Transliterate(ByVal arabicName As String) As NameResul
         Set answer = JsonParse(http.ResponseText)
         result.English = Trim$(JsonStr(answer, "english"))
         result.Outcome = IIf(Len(result.English) > 0, noOk, noNoAnswer)
+    ElseIf http.Status = GcvLocalApi.HTTP_UNAUTHORIZED Then
+        result.Outcome = noUnauthorized
+    ElseIf http.Status = GcvLocalApi.HTTP_UNAVAILABLE Then
+        result.Outcome = noUnavailable
     Else
         result.Outcome = noHttpError
     End If

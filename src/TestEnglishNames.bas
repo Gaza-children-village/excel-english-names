@@ -22,6 +22,8 @@ Public Sub RunEnglishNamesTests()
     Test_ToEnglish_EmptyAndErrorInputs
     Test_ToEnglish_UnknownNameIsNA
     Test_ToEnglish_PausesRequestsWhenServiceIsDown
+    Test_ToEnglish_PausesOnRefusalAndHttpErrors
+    Test_ProblemMessage_PicksTheText
     Test_ToEnglish_RefusesSeveralCells
     Test_FreezeNames_TurnsResultsIntoText
 
@@ -83,6 +85,32 @@ Private Sub Test_ToEnglish_PausesRequestsWhenServiceIsDown()
     AssertEqual CStr(CVErr(xlErrNA)), CStr(TO_ENGLISH(FromCodePoints("0645 062D 0645 062F 0020 0639 0644 064A"))), "first"
     AssertEqual CStr(CVErr(xlErrNA)), CStr(TO_ENGLISH(FromCodePoints("0623 062D 0645 062F"))), "second"
     AssertEqual 1, fake.Calls, "paused after one failure"
+End Sub
+
+Private Sub Test_ToEnglish_PausesOnRefusalAndHttpErrors()
+    Dim fake As FakeNameApi
+    Dim status As Variant
+    For Each status In Array(401, 503, 500)
+        StartTest "HTTP " & status & ": #N/A and no more requests for a while"
+        Set fake = Prepared()
+        fake.FailWithStatus = status
+        AssertEqual CStr(CVErr(xlErrNA)), CStr(TO_ENGLISH(FromCodePoints("0645 062D 0645 062F 0020 0639 0644 064A"))), "first"
+        AssertEqual CStr(CVErr(xlErrNA)), CStr(TO_ENGLISH(FromCodePoints("0623 062D 0645 062F"))), "second"
+        AssertEqual 1, fake.Calls, "paused after one failure"
+    Next status
+    AssertEqual noHttpError, EnglishNames.LastProblem(), "last problem kept for the ribbon"
+End Sub
+
+Private Sub Test_ProblemMessage_PicksTheText()
+    Dim health As String
+    StartTest "The ribbon message fits the problem"
+    health = "{""registry"":""ready"",""names"":""unavailable"",""version"":""1.10.0""}"
+    AssertEqual T_Unauthorized(), ProblemMessage(noUnauthorized, 401, ""), "401"
+    AssertEqual T_NotReady(), ProblemMessage(noUnavailable, 503, ""), "503"
+    AssertEqual T_Offline(), ProblemMessage(noConnectionFailed, 0, ""), "app not running"
+    AssertEqual T_NotReady() & vbCrLf & T_AppVersion("1.10.0"), ProblemMessage(noConnectionFailed, 0, health), "running, names not ready"
+    AssertEqual T_HttpError(500), ProblemMessage(noHttpError, 500, "not json"), "other HTTP error"
+    AssertEqual "", ProblemMessage(0, 0, ""), "no problem"
 End Sub
 
 Private Sub Test_ToEnglish_RefusesSeveralCells()

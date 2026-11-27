@@ -10,7 +10,7 @@ Option Explicit
 Public Const ADDIN_ID As String = "gcv/english-names"
 Public Const ADDIN_NAME As String = "GCV English Names"
 Public Const ADDIN_FILE As String = "GCV English Names.xlam"
-Public Const ADDIN_VERSION As String = "0.1.0"
+Public Const ADDIN_VERSION As String = "0.2.0"
 Public Const ADDIN_REPO As String = "Gaza-children-village/excel-english-names"
 
 Public Const ID_PROPERTY As String = "GcvAddinId"

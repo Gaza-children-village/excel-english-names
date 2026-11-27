@@ -12,8 +12,10 @@ Option Explicit
 ' never changes again and the file works without the add-in.
 '
 ' Light on the PC: answers are kept for the Excel session (the same name is
-' asked once); when the service cannot be reached, every TO_ENGLISH returns
-' #N/A for 30 seconds without new requests. Ribbon "try again" clears that.
+' asked once); when the service cannot answer (not running, 401, 503 or
+' another HTTP error), every TO_ENGLISH returns #N/A for 30 seconds without
+' new requests. A worksheet function shows no messages: ribbon "try again"
+' explains the last problem (asking /api/health), then asks again.
 ' Logs hold counts and failures, never names.
 ' ============================================================================
 
@@ -34,6 +36,8 @@ Private mCache As Object               ' normalised Arabic name -> English
 Private mPausedUntil As Date           ' no requests before this time (service down)
 Private mRequests As Long
 Private mTestMode As Boolean
+Private mLastProblem As NameOutcome    ' 0 = none; kept for the next ribbon action
+Private mLastStatus As Long
 
 ' ----------------------------------------------------------------------------
 ' The worksheet function
@@ -75,14 +79,10 @@ Public Function TO_ENGLISH(ByVal arabicName As Variant) As Variant
     Select Case result.Outcome
         Case noOk
             Cache()(text) = result.English
+            mLastProblem = 0
             TO_ENGLISH = result.English
-        Case noConnectionFailed
-            mPausedUntil = Now + TimeSerial(0, 0, PAUSE_SECONDS)
-            LogWarn LOG_SOURCE, "Name service unreachable (" & result.ErrorText & "); paused for " & _
-                                PAUSE_SECONDS & " s after " & mRequests & " request(s)."
-            TO_ENGLISH = CVErr(xlErrNA)
-        Case noHttpError
-            LogWarn LOG_SOURCE, "Name service returned HTTP " & result.HttpStatus & "."
+        Case noConnectionFailed, noUnauthorized, noUnavailable, noHttpError
+            PauseAfter result
             TO_ENGLISH = CVErr(xlErrNA)
         Case Else
             TO_ENGLISH = CVErr(xlErrNA)                  ' no spelling for this name
@@ -138,6 +138,80 @@ End Function
 ' Add-in life cycle and ribbon
 ' ----------------------------------------------------------------------------
 
+' The service cannot answer now: no requests for PAUSE_SECONDS, one log line,
+' and the reason kept for the next ribbon action.
+Private Sub PauseAfter(ByVal result As NameResult)
+    mPausedUntil = Now + TimeSerial(0, 0, PAUSE_SECONDS)
+    mLastProblem = result.Outcome
+    mLastStatus = result.HttpStatus
+    Select Case result.Outcome
+        Case noConnectionFailed
+            LogWarn LOG_SOURCE, "Name service unreachable (" & result.ErrorText & "); paused for " & _
+                                PAUSE_SECONDS & " s after " & mRequests & " request(s)."
+        Case noUnauthorized
+            LogWarn LOG_SOURCE, "Name service refused the request (HTTP 401): the GCV application must be " & _
+                                "opened or updated; paused for " & PAUSE_SECONDS & " s."
+        Case noUnavailable
+            LogWarn LOG_SOURCE, "Name service not ready (HTTP 503); paused for " & PAUSE_SECONDS & " s."
+        Case Else
+            LogWarn LOG_SOURCE, "Name service returned HTTP " & result.HttpStatus & "; paused for " & _
+                                PAUSE_SECONDS & " s."
+    End Select
+End Sub
+
+Public Function LastProblem() As NameOutcome
+    LastProblem = mLastProblem
+End Function
+
+' Message for a problem; healthJson = answer of /api/health ("" = no answer).
+Public Function ProblemMessage(ByVal problem As NameOutcome, ByVal httpStatus As Long, _
+                               ByVal healthJson As String) As String
+    Dim namesState As String
+    Dim appVersion As String
+
+    ReadHealthParts healthJson, namesState, appVersion
+    Select Case problem
+        Case noUnauthorized: ProblemMessage = T_Unauthorized()
+        Case noUnavailable: ProblemMessage = T_NotReady()
+        Case noConnectionFailed
+            If namesState = "unavailable" Then ProblemMessage = T_NotReady() Else ProblemMessage = T_Offline()
+        Case noHttpError: ProblemMessage = T_HttpError(httpStatus)
+        Case Else: Exit Function
+    End Select
+    If Len(appVersion) > 0 Then ProblemMessage = ProblemMessage & vbCrLf & T_AppVersion(appVersion)
+End Function
+
+Private Sub ReadHealthParts(ByVal healthJson As String, ByRef namesState As String, ByRef appVersion As String)
+    Dim answer As Object
+    If Len(healthJson) = 0 Then Exit Sub
+    On Error Resume Next                         ' a malformed answer only loses the detail
+    Set answer = JsonParse(healthJson)
+    namesState = LCase$(Trim$(JsonStr(answer, "names")))
+    appVersion = JsonStr(answer, "version")
+    On Error GoTo 0
+End Sub
+
+Public Function T_Unauthorized() As String
+    T_Unauthorized = FromCodePoints("0631 0641 0636 0020 062A 0637 0628 064A 0642 0020 0047 0043 0056 0020 0637 0644 0628 0020 0627 0644 0623 0633 0645 0627 0621 0020 0028 0645 0641 062A 0627 062D 0020 0627 0644 0627 062A 0635 0627 0644 0020 063A 064A 0631 0020 0645 0642 0628 0648 0644 0029 002E") & vbCrLf & _
+                     FromCodePoints("0627 0641 062A 062D 0020 062A 0637 0628 064A 0642 0020 0047 0043 0056 0020 0623 0648 0020 062D 062F 0651 062B 0647 060C 0020 062B 0645 0020 0627 0636 063A 0637 0020 00AB 0625 0639 0627 062F 0629 0020 0627 0644 0645 062D 0627 0648 0644 0629 00BB 002E")
+End Function
+
+Public Function T_NotReady() As String
+    T_NotReady = FromCodePoints("062E 062F 0645 0629 0020 0627 0644 0623 0633 0645 0627 0621 0020 063A 064A 0631 0020 062C 0627 0647 0632 0629 0020 0641 064A 0020 062A 0637 0628 064A 0642 0020 0047 0043 0056 0020 0628 0639 062F 002E 0020 062D 0627 0648 0644 0020 0644 0627 062D 0642 0627 064B 0020 0628 0632 0631 0020 00AB 0625 0639 0627 062F 0629 0020 0627 0644 0645 062D 0627 0648 0644 0629 00BB 002E")
+End Function
+
+Public Function T_Offline() As String
+    T_Offline = FromCodePoints("062A 0639 0630 0631 0020 0627 0644 0627 062A 0635 0627 0644 0020 0628 062A 0637 0628 064A 0642 0020 0047 0043 0056 002E 0020 062A 0623 0643 062F 0020 0645 0646 0020 062A 0634 063A 064A 0644 0647 060C 0020 062B 0645 0020 0627 0636 063A 0637 0020 00AB 0625 0639 0627 062F 0629 0020 0627 0644 0645 062D 0627 0648 0644 0629 00BB 002E")
+End Function
+
+Public Function T_HttpError(ByVal httpStatus As Long) As String
+    T_HttpError = FromCodePoints("0623 0639 0627 062F 0020 062A 0637 0628 064A 0642 0020 0047 0043 0056 0020 062E 0637 0623 0020 0028 0048 0054 0054 0050 0020") & httpStatus & FromCodePoints("0029 002E 0020 062D 0627 0648 0644 0020 0644 0627 062D 0642 0627 064B 0020 0623 0648 0020 0627 0633 062A 062E 062F 0645 0020 00AB 0627 0644 0625 0628 0644 0627 063A 0020 0639 0646 0020 0645 0634 0643 0644 0629 00BB 002E")
+End Function
+
+Public Function T_AppVersion(ByVal appVersion As String) As String
+    T_AppVersion = FromCodePoints("0625 0635 062F 0627 0631 0020 062A 0637 0628 064A 0642 0020 0047 0043 0056 003A 0020") & appVersion
+End Function
+
 Public Sub AddinOpened()
     On Error Resume Next                       ' start-up must never show a VBA error
     LogInfo LOG_SOURCE, GcvAddin.ADDIN_NAME & " " & GcvAddin.ADDIN_VERSION & " opened."
@@ -153,6 +227,7 @@ End Sub
 Public Sub AddinSelfCheck()
     NormaliseSpaces vbNullString
     UrlEncodeUtf8 "a"
+    GcvLocalApi.HealthUrl vbNullString
 End Sub
 
 ' Turns the selected TO_ENGLISH formulas with a result into fixed text.
@@ -164,10 +239,17 @@ Public Sub Ribbon_FreezeNames(control As IRibbonControl)
     Notify FromCodePoints("062A 0645 0020 062A 062B 0628 064A 062A 0020") & count & FromCodePoints("0020 0627 0633 0645 0627 064B 0020 0643 0646 0635 002E 0020 0627 0644 062E 0644 0627 064A 0627 0020 0627 0644 062A 064A 0020 0641 064A 0647 0627 0020 0023 004E 002F 0041 0020 0644 0645 0020 062A 062A 063A 064A 0631 002E")
 End Sub
 
-' Forgets failures and asks the service again for the selected cells.
+' Explains the last problem (if any), forgets it and asks the service again
+' for the selected cells.
 Public Sub Ribbon_TryAgain(control As IRibbonControl)
+    Dim problem As NameOutcome
+    problem = mLastProblem
     mPausedUntil = 0
+    mLastProblem = 0
     LogInfo LOG_SOURCE, "Try again requested."
+    If problem <> 0 And Not mTestMode Then
+        Notify ProblemMessage(problem, mLastStatus, GcvLocalApi.ReadHealth(GcvLocalApi.HealthUrl(ApiBaseUrl())))
+    End If
     If TypeName(Selection) = "Range" Then
         Selection.Dirty
         Selection.Calculate
@@ -219,6 +301,8 @@ Public Sub UseTestApi(ByVal fake As INameApi)
     Set mCache = Nothing
     mPausedUntil = 0
     mRequests = 0
+    mLastProblem = 0
+    mLastStatus = 0
     mTestMode = True
 End Sub
 
@@ -227,6 +311,8 @@ Public Sub ResetForTests()
     Set mCache = Nothing
     mPausedUntil = 0
     mRequests = 0
+    mLastProblem = 0
+    mLastStatus = 0
     mTestMode = False
 End Sub
 

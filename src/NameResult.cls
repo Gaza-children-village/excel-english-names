@@ -16,6 +16,8 @@ Public Enum NameOutcome
     noNoAnswer = 2            ' the service answered but gave no English name
     noHttpError = 3
     noConnectionFailed = 4
+    noUnauthorized = 5        ' 401: the GCV app refuses the request (open or update the app)
+    noUnavailable = 6         ' 503: the app runs but the name service is not ready
 End Enum
 
 Public Outcome As NameOutcome
